@@ -10,8 +10,7 @@ import (
 	"sync"
 	"sync/atomic"
 	"time"
-
-	"github.com/codahale/hdrhistogram"
+	"github.com/HdrHistogram/hdrhistogram-go"
 	"github.com/dgraph-io/badger/y"
 	"github.com/pkg/profile"
 	"github.com/traetox/goaio"

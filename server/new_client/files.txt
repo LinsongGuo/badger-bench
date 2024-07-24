@@ -1,0 +1,6 @@
+run.20240604230714/uintr-10us/results_10us.csv
+run.20240604230714/signal-100us/results_100us.csv
+run.20240604230714/uintr-10000us/results_10000us.csv
+run.20240604230714/signal-10000us/results_10000us.csv
+run.20240604230714/signal-10us/results_10us.csv
+run.20240604230714/uintr-100us/results_100us.csv
