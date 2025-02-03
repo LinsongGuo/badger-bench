@@ -47,9 +47,17 @@ func getBadger() (*badger.DB, error) {
 }
 
 const Mf float64 = 1000000
+const ScanRange int = 3600
+
 func newKey() []byte {
 	k := rand.Int() % int(*numKeys*Mf)
-	key := fmt.Sprintf("vsz=%05d-k=%010d", *flagValueSize, k) // 22 bytes.
+	key := fmt.Sprintf("vsz=%05d-k=%07d", *flagValueSize, k) // 19 bytes.
+	return []byte(key)
+}
+
+func newKey2() []byte {
+	k := rand.Int() % int(*numKeys*Mf*0.95)
+	key := fmt.Sprintf("vsz=%05d-k=%07d", *flagValueSize, k) // 19 bytes.
 	return []byte(key)
 }
 
@@ -64,6 +72,7 @@ func randomRead(bdb *badger.DB) error {
 		if err != nil {
 			return err
 		}
+		// fmt.Printf("val: %s\n", string(val))
 		y.AssertTruef(len(val) == *flagValueSize,
 			"Assertion failed. value size is %d, expected %d", len(val), *flagValueSize)
 		return nil
@@ -88,6 +97,35 @@ func iterateOnlyKeys(bdb *badger.DB, num int) int {
 		item := itr.Item()
 		{
 			k = safecopy(k, item.Key())
+			// fmt.Printf("Key: %s\n", string(k))
+		}
+		count++
+		if count >= num {
+			break
+		}
+	}
+	return count
+}
+
+func iterateOnlyKeysRandom(bdb *badger.DB, num int) int {
+	k := make([]byte, 1024)
+	var count int
+	opt := badger.IteratorOptions{}
+	opt.PrefetchSize = 256
+	txn := bdb.NewTransaction(false)
+	itr := txn.NewIterator(opt)
+
+	key := newKey2()
+	itr.Seek(key)
+	// if !itr.Valid() {
+	// 	fmt.Println("itr.Valid():", itr.Valid())
+	// }
+
+	for ; itr.Valid(); itr.Next() {
+		item := itr.Item()
+		{
+			k = safecopy(k, item.Key())
+			// fmt.Printf("Key: %s\n", string(k))
 		}
 		count++
 		if count >= num {
@@ -123,7 +161,7 @@ func all_keys(bdb *badger.DB) error {
 }
 
 const GETCOUNT int = 100000
-const SCANCOUNT int = 400
+const SCANCOUNT int = 300
 
 func getLoop(bdb *badger.DB) int {
 	// start := time.Now()
@@ -147,7 +185,8 @@ func scanLoop(bdb *badger.DB) int {
 	// start := time.Now()
 
 	for i := 0; i < SCANCOUNT; i++ {
-		total += iterateOnlyKeys(bdb, 2000)
+		// total += iterateOnlyKeys(bdb, ScanRange)
+		total += iterateOnlyKeysRandom(bdb, ScanRange)
 	}
 
 	// elapsed := time.Since(start)
@@ -168,7 +207,7 @@ func main() {
 	bdb := start_badger()
 
 	// Warmup and measure:
-	count := 20000
+	count := 100000
 	start := time.Now()
 	for i := 0; i < count; i++ {
 		randomRead(bdb)
@@ -180,7 +219,8 @@ func main() {
 	var total int
 	start = time.Now()
 	for i := 0; i < count; i++ {
-		total += iterateOnlyKeys(bdb, 2000)
+		// total += iterateOnlyKeys(bdb, ScanRange)
+		total += iterateOnlyKeysRandom(bdb, ScanRange)
 	}
 	elapsed = time.Since(start)
 	fmt.Printf("One long takes %d us\n", elapsed.Microseconds()/int64(count))
@@ -190,7 +230,7 @@ func main() {
 
 	var wg sync.WaitGroup
 	start = time.Now()
-	// Issue Get goroutines. 
+	// Issue Get goroutines.
 	for i := 0; i < numGet; i++ {
 		wg.Add(1)
 		go func() {
@@ -199,17 +239,17 @@ func main() {
 		}()
 	}
 
-	// Issue Scan goroutines. 
+	// Issue Scan goroutines.
 	for i := 0; i < numScan; i++ {
 		wg.Add(1)
 		go func() {
 			defer wg.Done()
 			total += scanLoop(bdb)
 		}()
-	}	
+	}
 	wg.Wait()
 	elapsed = time.Since(start)
-	
+
 	fmt.Printf("Runtime: %d us\n", elapsed.Microseconds())
 	fmt.Println("Total2 (dummy):", total)
 }

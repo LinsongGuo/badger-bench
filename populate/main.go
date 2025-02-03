@@ -32,7 +32,7 @@ const mil float64 = 1000000
 var (
 	which     = flag.String("kv", "badger", "Which KV store to use. Options: badger, rocksdb, bolt, leveldb")
 	numKeys   = flag.Float64("keys_mil", 10.0, "How many million keys to write.")
-	valueSize = flag.Int("valsz", 128, "Value size in bytes.")
+	valueSize = flag.Int("valsz", 64, "Value size in bytes.")
 	dir       = flag.String("dir", "", "Base dir for writes.")
 	mode      = flag.String("profile.mode", "", "enable profiling mode, one of [cpu, mem, mutex, block]")
 )
@@ -45,7 +45,7 @@ type entry struct {
 
 func fillEntry(e *entry) {
 	k := rand.Int() % int(*numKeys*mil)
-	key := fmt.Sprintf("vsz=%05d-k=%010d", *valueSize, k) // 22 bytes.
+	key := fmt.Sprintf("vsz=%05d-k=%07d", *valueSize, k) // 20 bytes.
 	if cap(e.Key) < len(key) {
 		e.Key = make([]byte, 2*len(key))
 	}
