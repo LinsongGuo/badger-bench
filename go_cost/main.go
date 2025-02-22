@@ -160,8 +160,11 @@ func all_keys(bdb *badger.DB) error {
 	return err
 }
 
-const GETCOUNT int = 100000
-const SCANCOUNT int = 300
+// const GETCOUNT int = 58000 // quantum = 10 us
+// const GETCOUNT int = 29800 // quantum = 20 us
+const GETCOUNT int = 11800 // quantum = 50 us
+
+const SCANCOUNT int = 590
 
 func getLoop(bdb *badger.DB) int {
 	// start := time.Now()
@@ -170,7 +173,7 @@ func getLoop(bdb *badger.DB) int {
 	for i := 0; i < GETCOUNT; i++ {
 		if err := randomRead(bdb); err == nil {
 			total++
-			// runtime.Gosched()
+			runtime.Gosched()
 		}
 	}
 
@@ -236,6 +239,7 @@ func main() {
 		go func() {
 			defer wg.Done()
 			total += getLoop(bdb) // Get the number of successful reads
+			// fmt.Printf("Get end: %d us\n", time.Since(start).Microseconds())
 		}()
 	}
 
@@ -245,6 +249,7 @@ func main() {
 		go func() {
 			defer wg.Done()
 			total += scanLoop(bdb)
+			// fmt.Printf("Scan end: %d us\n", time.Since(start).Microseconds())
 		}()
 	}
 	wg.Wait()
