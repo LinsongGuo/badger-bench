@@ -5,7 +5,6 @@ import (
 	// "crypto/rand"
 	"flag"
 	"fmt"
-	"sync"
 	"sync/atomic"
 	"testing"
 
@@ -14,7 +13,7 @@ import (
 	"os"
 	"os/signal"
 	"runtime"
-  "runtime/pprof"
+	"runtime/pprof"
 	"runtime/trace"
 
 	// "runtime/pprof"
@@ -150,8 +149,13 @@ func getBadger() (*badger.DB, error) {
 
 func newKey() []byte {
 	k := rand.Int() % int(*numKeys*Mf)
-	key := fmt.Sprintf("vsz=%05d-k=%010d", *flagValueSize, k) // 22 bytes.
-	//log.Println(key)
+	key := fmt.Sprintf("vsz=%05d-k=%07d", *flagValueSize, k) // 19 bytes.
+	return []byte(key)
+}
+
+func newKey2() []byte {
+	k := rand.Int() % int(*numKeys*Mf*0.95)
+	key := fmt.Sprintf("vsz=%05d-k=%07d", *flagValueSize, k) // 19 bytes.
 	return []byte(key)
 }
 
@@ -173,15 +177,9 @@ func randomRead(bdb *badger.DB) {
 
 	_ = bdb.View(func(txn *badger.Txn) error {
 		key := newKey()
-		//log.Println(key)
 		err := readkey(txn, key)
 		return err
 	})
-
-	// y.Check(err)
-	//if err != nil {
-	//	fmt.Println("error")
-	//}
 }
 
 func iterateOnlyKeys(bdb *badger.DB, num int) int64 {
@@ -209,6 +207,34 @@ func iterateOnlyKeys(bdb *badger.DB, num int) int64 {
 	elapsed := time.Since(start)
 	// fmt.Printf("Execution time: %d µs\n", elapsed.Microseconds())
 	return elapsed.Microseconds()
+}
+
+func iterateOnlyKeysRandom(bdb *badger.DB, num int) int {
+	k := make([]byte, 1024)
+	var count int
+	opt := badger.IteratorOptions{}
+	opt.PrefetchSize = 256
+	txn := bdb.NewTransaction(false)
+	itr := txn.NewIterator(opt)
+
+	key := newKey2()
+	itr.Seek(key)
+	// if !itr.Valid() {
+	// 	fmt.Println("itr.Valid():", itr.Valid())
+	// }
+
+	for ; itr.Valid(); itr.Next() {
+		item := itr.Item()
+		{
+			k = safecopy(k, item.Key())
+			// fmt.Printf("Key: %s\n", string(k))
+		}
+		count++
+		if count >= num {
+			break
+		}
+	}
+	return count
 }
 
 func shutdown(app *fiber.App, bdb *badger.DB, start_time time.Time) {
@@ -261,9 +287,11 @@ func main() {
 	// initalize badger
 	bdb := start_badger()
 
-  // start a goroutine to collect traces
+	fmt.Println("start_badger")
+
+	// start a goroutine to collect traces
 	if trace {
-    runtime.GOMAXPROCS(runtime.GOMAXPROCS(0) + 1)
+		runtime.GOMAXPROCS(runtime.GOMAXPROCS(0) + 1)
 		go trace_runner(run, port)
 	}
 	// initialize server
@@ -271,51 +299,39 @@ func main() {
 
 	fmt.Println("App started")
 
+	// Warmup and measure:
+	count := 100000
+	start := time.Now()
+	for i := 0; i < count; i++ {
+		randomRead(bdb)
+	}
+	elapsed := time.Since(start)
+	fmt.Printf("One short takes %.3f us\n", float64(elapsed.Microseconds())/float64(count))
+
+	count = 1000
+	var total int
+	start = time.Now()
+	for i := 0; i < count; i++ {
+		// total += iterateOnlyKeys(bdb, ScanRange)
+		total += iterateOnlyKeysRandom(bdb, 3600)
+	}
+	elapsed = time.Since(start)
+	fmt.Printf("One long takes %d us\n", elapsed.Microseconds()/int64(count))
+	fmt.Println("Total (dummy):", total)
+
 	// start a goroutine to shutdown gracefully
 	go shutdown(app, bdb, start_time)
 
 	app.Get("/getkey/:num", func(c fiber.Ctx) error {
-		//fmt.Println("received getkey request")
-		num := fiber.Params[int](c, "num")
-
-		// do num randomReads
-		var wg sync.WaitGroup
-		wg.Add(num)
-
-		start := time.Now()
-		for i := 0; i < num; i++ {
-			go func() {
-				defer wg.Done()
-				randomRead(bdb)
-			}()
-		}
-		elapsed := time.Since(start)
-
-		wg.Wait()
-
-		return c.SendString(strconv.Itoa(int(elapsed.Microseconds())))
+		randomRead(bdb)
+		return c.SendString("ok")
 	})
 
 	app.Get("/iteratekey/:num/:count", func(c fiber.Ctx) error {
 		num := fiber.Params[int](c, "num")
-		count := fiber.Params[int](c, "count")
-
-		// do num randomReads
-		var wg sync.WaitGroup
-
-		total := int64(0)
-		wg.Add(count)
-
-		for i := 0; i < count; i++ {
-			go func() {
-				defer wg.Done()
-				total += iterateOnlyKeys(bdb, num)
-			}()
-		}
-
-		wg.Wait()
-
-		return c.SendString(strconv.Itoa(int(total / int64(count))))
+		total := int(0)
+		total += iterateOnlyKeysRandom(bdb, num)
+		return c.SendString(strconv.Itoa(total))
 	})
 
 	err := app.Listen(":" + strconv.Itoa(port))
